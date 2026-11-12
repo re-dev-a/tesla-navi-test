@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GPS 갱신 테스트</title>
+<style>
+  :root {
+    --bg: #eef1f4;
+    --panel: #ffffff;
+    --ink: #1d2733;
+    --muted: #5e6b7a;
+    --line: #d3d9e0;
+    --good: #1f8a4c;
+    --warn: #b7791f;
+    --bad: #c0392b;
+    --btn: #1d2733;
+    --btn-ink: #ffffff;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161b22;
+      --panel: #1f2630;
+      --ink: #e6ebf1;
+      --muted: #93a1b1;
+      --line: #313b48;
+      --good: #4cc27e;
+      --warn: #e0a645;
+      --bad: #ef6b5b;
+      --btn: #e6ebf1;
+      --btn-ink: #161b22;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    font-variant-numeric: tabular-nums;
+    padding: 20px;
+    padding-top: calc(20px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  button {
+    font: inherit; font-size: 20px; font-weight: 600;
+    padding: 14px 24px; border-radius: 10px; border: 2px solid var(--btn);
+    background: var(--btn); color: var(--btn-ink); cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--ink); }
+  button:disabled { opacity: .4; cursor: default; }
+  button:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+  #status { font-size: 18px; color: var(--muted); margin-left: 8px; }
+  .hero {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 24px; display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 24px;
+    align-items: end;
+  }
+  .hero .v { font-size: 44px; font-weight: 700; line-height: 1.1; }
+  .hero .big .v { font-size: 96px; }
+  .hero .k { font-size: 17px; color: var(--muted); margin-top: 6px; }
+  .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .stats {
+    display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 16px 4px;
+    font-size: 18px; color: var(--muted);
+  }
+  .stats b { color: var(--ink); font-weight: 600; }
+  .tablebox { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  th, td { padding: 8px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+  th:first-child, td:first-child { text-align: left; }
+  tr.err td { color: var(--bad); text-align: left; }
+  .empty { padding: 24px; color: var(--muted); font-size: 18px; }
+  @media (max-width: 760px) {
+    .hero { grid-template-columns: 1fr 1fr; }
+    .hero .big { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="controls">
+    <button id="start">측정 시작</button>
+    <button id="stop" class="ghost" disabled>측정 정지</button>
+    <button id="csv" class="ghost">CSV 저장</button>
+    <button id="clear" class="ghost">기록 지우기</button>
+    <span id="status">측정 시작을 누르고 위치 권한을 허용하세요.</span>
+  </div>
+
+  <div class="hero">
+    <div class="big"><div class="v" id="hInterval">–</div><div class="k">직전 갱신과의 간격 (초)</div></div>
+    <div><div class="v" id="hAcc">–</div><div class="k">정확도 (m)</div></div>
+    <div><div class="v" id="hSpeed">–</div><div class="k">속도 (km/h)</div></div>
+    <div><div class="v" id="hHead">–</div><div class="k">방향 (°)</div></div>
+  </div>
+
+  <div class="stats">
+    <span>갱신 <b id="sCount">0</b>회</span>
+    <span>평균 간격 <b id="sAvg">–</b>초</span>
+    <span>최대 간격 <b id="sMax">–</b>초</span>
+    <span>평균 정확도 <b id="sAcc">–</b>m</span>
+    <span>속도값 있음 <b id="sSpd">–</b></span>
+    <span>좌표 그대로인 갱신 <b id="sDup">0</b>회</span>
+    <span>오류 <b id="sErr">0</b>회</span>
+  </div>
+
+  <div class="tablebox">
+    <table>
+      <thead><tr>
+        <th>시각</th><th>간격(초)</th><th>위도</th><th>경도</th>
+        <th>정확도(m)</th><th>속도(km/h)</th><th>방향(°)</th><th>고도(m)</th>
+      </tr></thead>
+      <tbody id="log"></tbody>
+    </table>
+    <div class="empty" id="empty">아직 기록이 없어요. 측정 시작을 눌러 주세요.</div>
+  </div>
+</div>
+
+<script>
+const MAX_ROWS = 200;
+const $ = id => document.getElementById(id);
+
+let watchId = null;
+let records = [];        // 전체 기록 (CSV용)
+let lastTs = null;
+let lastLat = null, lastLon = null;
+let sumInt = 0, nInt = 0, maxInt = 0;
+let sumAcc = 0, nAcc = 0, nSpd = 0, nDup = 0, nErr = 0;
+
+const fmt = (v, d) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : Number(v).toFixed(d);
+const timeStr = ts => {
+  const t = new Date(ts);
+  return t.toLocaleTimeString('ko-KR', { hour12: false }) + '.' + String(t.getMilliseconds()).padStart(3, '0');
+};
+const grade = (el, v, good, warn) => {
+  el.classList.remove('good', 'warn', 'bad');
+  if (v === null || v === undefined) return;
+  el.classList.add(v <= good ? 'good' : v <= warn ? 'warn' : 'bad');
+};
+
+function addRow(cells, cls) {
+  $('empty').style.display = 'none';
+  const tr = document.createElement('tr');
+  if (cls) tr.className = cls;
+  cells.forEach((c, i) => {
+    const td = document.createElement('td');
+    td.textContent = c;
+    if (cls === 'err' && i === 1) td.colSpan = 7;
+    tr.appendChild(td);
+  });
+  $('log').prepend(tr);
+  while ($('log').children.length > MAX_ROWS) $('log').lastChild.remove();
+}
+
+function onPos(p) {
+  const c = p.coords;
+  const ts = p.timestamp || Date.now();
+  const interval = lastTs === null ? null : (ts - lastTs) / 1000;
+  const speedKmh = (c.speed === null || c.speed === undefined) ? null : c.speed * 3.6;
+  const heading = (c.heading === null || Number.isNaN(c.heading)) ? null : c.heading;
+
+  if (interval !== null) {
+    sumInt += interval; nInt++;
+    if (interval > maxInt) maxInt = interval;
+  }
+  sumAcc += c.accuracy; nAcc++;
+  if (speedKmh !== null) nSpd++;
+  if (lastLat === c.latitude && lastLon === c.longitude) nDup++;
+  lastTs = ts; lastLat = c.latitude; lastLon = c.longitude;
+
+  records.push({
+    time: new Date(ts).toISOString(), interval, lat: c.latitude, lon: c.longitude,
+    accuracy: c.accuracy, speedKmh, heading, altitude: c.altitude
+  });
+
+  $('hInterval').textContent = fmt(interval, 2);
+  grade($('hInterval'), interval, 1.2, 3);
+  $('hAcc').textContent = fmt(c.accuracy, 0);
+  grade($('hAcc'), c.accuracy, 10, 30);
+  $('hSpeed').textContent = fmt(speedKmh, 0);
+  $('hHead').textContent = fmt(heading, 0);
+
+  const count = records.length;
+  $('sCount').textContent = count;
+  $('sAvg').textContent = nInt ? (sumInt / nInt).toFixed(2) : '–';
+  $('sMax').textContent = nInt ? maxInt.toFixed(2) : '–';
+  $('sAcc').textContent = nAcc ? (sumAcc / nAcc).toFixed(1) : '–';
+  $('sSpd').textContent = Math.round(nSpd / count * 100) + '%';
+  $('sDup').textContent = nDup;
+
+  addRow([
+    timeStr(ts), fmt(interval, 2), fmt(c.latitude, 6), fmt(c.longitude, 6),
+    fmt(c.accuracy, 1), fmt(speedKmh, 1), fmt(heading, 0), fmt(c.altitude, 1)
+  ]);
+  $('status').textContent = '측정 중';
+}
+
+function onErr(e) {
+  nErr++;
+  $('sErr').textContent = nErr;
+  const msg = { 1: '위치 권한이 거부됐어요. 브라우저 설정에서 허용해 주세요.',
+                2: '위치를 확인할 수 없어요.',
+                3: '10초 안에 위치가 오지 않았어요.' }[e.code] || e.message;
+  addRow([timeStr(Date.now()), '오류: ' + msg], 'err');
+  $('status').textContent = msg;
+  records.push({ time: new Date().toISOString(), error: msg });
+  if (e.code === 1) stop();
+}
+
+function start() {
+  if (!('geolocation' in navigator)) {
+    $('status').textContent = '이 브라우저는 위치 정보를 지원하지 않아요.';
+    return;
+  }
+  if (!window.isSecureContext) {
+    $('status').textContent = 'HTTPS 주소로 열어야 위치를 받을 수 있어요.';
+    return;
+  }
+  lastTs = null;
+  watchId = navigator.geolocation.watchPosition(onPos, onErr, {
+    enableHighAccuracy: true, maximumAge: 0, timeout: 10000
+  });
+  $('start').disabled = true; $('stop').disabled = false;
+  $('status').textContent = '위치를 기다리는 중…';
+}
+
+function stop() {
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  $('start').disabled = false; $('stop').disabled = true;
+  $('status').textContent = '측정 정지됨';
+}
+
+function saveCsv() {
+  if (!records.length) { $('status').textContent = '저장할 기록이 없어요.'; return; }
+  const head = ['time','interval_s','lat','lon','accuracy_m','speed_kmh','heading_deg','altitude_m','error'];
+  const rows = records.map(r => [
+    r.time, r.interval ?? '', r.lat ?? '', r.lon ?? '', r.accuracy ?? '',
+    r.speedKmh ?? '', r.heading ?? '', r.altitude ?? '', r.error ? '"' + r.error + '"' : ''
+  ].join(','));
+  const blob = new Blob(['\ufeff' + head.join(',') + '\n' + rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'gps_test_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function clearAll() {
+  records = []; lastTs = null; lastLat = lastLon = null;
+  sumInt = nInt = maxInt = sumAcc = nAcc = nSpd = nDup = nErr = 0;
+  $('log').innerHTML = '';
+  $('empty').style.display = '';
+  ['hInterval','hAcc','hSpeed','hHead','sAvg','sMax','sAcc','sSpd'].forEach(id => {
+    $(id).textContent = '–'; $(id).classList.remove('good','warn','bad');
+  });
+  ['sCount','sDup','sErr'].forEach(id => $(id).textContent = '0');
+}
+
+$('start').onclick = start;
+$('stop').onclick = stop;
+$('csv').onclick = saveCsv;
+$('clear').onclick = clearAll;
+</script>
+</body>
+</html>
